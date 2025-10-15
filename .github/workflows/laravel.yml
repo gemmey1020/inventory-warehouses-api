@@ -1,0 +1,63 @@
+name: Laravel CI (MySQL)
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  tests-mysql:
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: inventory_testing
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd="mysqladmin ping -proot"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          extensions: mbstring, pdo_mysql, pcntl
+          coverage: pcov
+
+      - uses: actions/cache@v4
+        with:
+          path: vendor
+          key: composer-${{ runner.os }}-${{ hashFiles('**/composer.lock') }}
+          restore-keys: composer-${{ runner.os }}-
+
+      - run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Prepare .env.testing for MySQL
+        run: |
+          cat > .env.testing <<'EOF'
+          APP_ENV=testing
+          APP_KEY=base64:SomeKeyWillBeOverwritten
+          APP_DEBUG=true
+          CACHE_DRIVER=array
+          SESSION_DRIVER=array
+          QUEUE_CONNECTION=sync
+
+          DB_CONNECTION=mysql
+          DB_HOST=127.0.0.1
+          DB_PORT=3306
+          DB_DATABASE=inventory_testing
+          DB_USERNAME=root
+          DB_PASSWORD=root
+          EOF
+
+      - run: php artisan key:generate --env=testing
+      - run: php artisan migrate:fresh --seed --env=testing
+
+      - run: php artisan test --env=testing --coverage-clover=coverage.xml
